@@ -2,11 +2,14 @@
 
 A lightweight Linux uploader for [Zipline](https://zipline.diced.sh). Upload files via right-click → Open With, drag & drop GUI, or CLI. Copies the URL to clipboard automatically.
 
-## Requirements
+## Dependencies
 
-- `wl-copy` (Wayland) or `xclip`/`xsel` (X11)
-- `notify-send`
-- A Zipline `.sxcu` config file (generated from your Zipline dashboard)
+For clipboard support, you need one of:
+- `wl-copy` (Wayland) — usually in the `wl-clipboard` package
+- `xclip` or `xsel` (X11)
+
+For desktop notifications:
+- `notify-send` — usually in the `libnotify` package
 
 ## Building
 
