@@ -1,8 +1,9 @@
-name: Build
+name: Release
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -20,8 +21,7 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: zipline-upload
-          path: target/release/zipline-upload
+          files: target/release/zipline-upload
