@@ -30,6 +30,15 @@ rm ~/.config/zipline-upload/installed
 zipline-upload
 ```
 
+## Uninstall
+
+```bash
+rm ~/.local/share/applications/zipline-upload.desktop
+rm -rf ~/.config/zipline-upload/
+```
+
+Then delete the binary itself.
+
 ## Reconfigure
 
 To switch to a different `.sxcu` file:
