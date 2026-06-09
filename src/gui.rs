@@ -4,19 +4,35 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
 pub fn run(flags: AppFlags) {
+    run_internal(flags, None, false);
+}
+
+pub fn run_with_file(flags: AppFlags, file: std::path::PathBuf) {
+    run_internal(flags, Some(file), true);
+}
+
+fn run_internal(flags: AppFlags, file: Option<std::path::PathBuf>, show_per_upload: bool) {
     let kde = flags.is_kde();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Zipline Upload")
-            .with_inner_size([460.0, 420.0])
-            .with_resizable(false)
+            .with_inner_size([460.0, 520.0])
+            .with_resizable(true)
             .with_drag_and_drop(true),
         ..Default::default()
     };
     eframe::run_native(
         "Zipline Upload",
         options,
-        Box::new(move |_cc| Ok(Box::new(App::new(kde)))),
+        Box::new(move |_cc| {
+            let mut app = App::new(kde);
+            if let Some(f) = file {
+                app.preloaded_file = Some(f);
+                app.show_per_upload = show_per_upload;
+                app.tab = Tab::Upload;
+            }
+            Ok(Box::new(app))
+        }),
     )
     .unwrap_or_else(|e| eprintln!("GUI error: {}", e));
 }
@@ -119,7 +135,9 @@ impl UploadOptions {
         if let Ok(pct) = self.image_compression_percent.parse::<u32>() {
             if pct > 0 {
                 h.push(("x-zipline-image-compression-percent".into(), pct.to_string()));
-                h.push(("x-zipline-image-compression-type".into(), self.image_compression_type.clone()));
+                if !self.image_compression_type.is_empty() {
+                    h.push(("x-zipline-image-compression-type".into(), self.image_compression_type.clone()));
+                }
             }
         }
         h
@@ -136,6 +154,7 @@ enum ShortenStatus {
 struct App {
     status: Status,
     queued: Option<PathBuf>,
+    preloaded_file: Option<PathBuf>, // set by --advanced, shown but not auto-uploaded
     rx: Option<Receiver<UploadResult>>,
     kde: bool,
     tab: Tab,
@@ -170,6 +189,7 @@ impl App {
         Self {
             status: Status::Idle,
             queued: None,
+            preloaded_file: None,
             rx: None,
             kde,
             tab: Tab::Upload,
@@ -341,6 +361,7 @@ impl eframe::App for App {
 
 impl App {
     fn show_upload_tab(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(12.0);
         ui.vertical_centered(|ui| {
             match &self.status {
@@ -382,6 +403,33 @@ impl App {
                     });
 
                     ui.add_space(6.0);
+
+                    // Show preloaded file from --advanced mode
+                    if self.preloaded_file.is_some() {
+                        let name = self.preloaded_file.as_ref()
+                            .and_then(|f| f.file_name())
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        let mut do_clear = false;
+                        let mut do_upload = false;
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(format!("📄 {}", name)).size(12.0).color(egui::Color32::from_gray(200)));
+                            if ui.small_button("Clear").clicked() { do_clear = true; }
+                            if ui.button("Upload").clicked() { do_upload = true; }
+                        });
+                        if do_clear {
+                            self.preloaded_file = None;
+                            self.show_per_upload = false;
+                        }
+                        if do_upload {
+                            if let Some(file) = self.preloaded_file.take() {
+                                self.queued = Some(file);
+                            }
+                        }
+                        ui.add_space(4.0);
+                    }
+
                     ui.checkbox(&mut self.show_per_upload, "Override upload settings for this file");
 
                     if self.show_per_upload {
@@ -455,6 +503,7 @@ impl App {
                 }
             }
         });
+        }); // ScrollArea
     }
 
     fn show_settings_tab(&mut self, ui: &mut egui::Ui) {

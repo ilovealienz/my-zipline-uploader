@@ -36,12 +36,16 @@ fn main() {
 
     let mut file_arg: Option<PathBuf> = None;
     let mut kde_override: Option<bool> = None;
+    let mut advanced = false;
+    let mut uninstall = false;
 
     let mut i = 1;
     while i < raw_args.len() {
         match raw_args[i].as_str() {
             "--kde"         => kde_override = Some(true),
             "--no-kde"      => kde_override = Some(false),
+            "--advanced"    => advanced = true,
+            "--uninstall"   => uninstall = true,
             "--help" | "-h" => { print_help(); process::exit(0); }
             arg if !arg.starts_with("--") => file_arg = Some(PathBuf::from(arg)),
             unknown => {
@@ -52,7 +56,11 @@ fn main() {
         i += 1;
     }
 
-    // CLI --kde/--no-kde overrides settings, settings overrides auto-detect
+    if uninstall {
+        install::uninstall();
+        process::exit(0);
+    }
+
     let s = settings::Settings::load();
     let kde = if let Some(k) = kde_override {
         k
@@ -64,6 +72,7 @@ fn main() {
 
     let flags = AppFlags { kde: Some(kde) };
 
+    // Handles first run, upgrades, and no-ops if already up to date
     install::ensure_installed();
 
     if let Some(file) = file_arg {
@@ -72,29 +81,33 @@ fn main() {
             process::exit(1);
         }
 
-        // Extension check
-        if !s.extension_allowed(&file) {
-            let ext = file.extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("unknown");
-            let msg = format!(".{} is not in your allowed extensions list", ext);
-            notify::blocked(&file, &msg);
-            eprintln!("{}", msg);
-            process::exit(1);
-        }
+        if advanced {
+            // Open GUI with file pre-loaded and override panel open
+            gui::run_with_file(flags, file);
+        } else {
+            // Silent CLI upload
 
-        let cfg = config::load_or_setup();
-
-        match upload::upload_file(&cfg, &s, &file) {
-            Ok(url) => {
-                let copied = copy_to_clipboard(&url);
-                notify::success(&file, &url, kde, copied);
-            }
-            Err(e) => {
-                logger::log_failure(&file, &e);
-                notify::failure(&file, &e);
-                eprintln!("Upload failed: {}", e);
+            if !s.extension_allowed(&file) {
+                let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("unknown");
+                let msg = format!(".{} is not in your allowed extensions list", ext);
+                notify::blocked(&file, &msg);
+                eprintln!("{}", msg);
                 process::exit(1);
+            }
+
+            let cfg = config::load_or_setup();
+
+            match upload::upload_file(&cfg, &s, &file) {
+                Ok(url) => {
+                    let copied = copy_to_clipboard(&url);
+                    notify::success(&file, &url, kde, copied);
+                }
+                Err(e) => {
+                    logger::log_failure(&file, &e);
+                    notify::failure(&file, &e);
+                    eprintln!("Upload failed: {}", e);
+                    process::exit(1);
+                }
             }
         }
     } else {
@@ -135,6 +148,8 @@ fn print_help() {
              zipline-upload [FLAGS] [FILE]\n\
          \n\
          FLAGS:\n\
+             --advanced      Open GUI with file pre-loaded and options panel open\n\
+             --uninstall     Remove desktop entries and marker file\n\
              --kde           Force KDE notification style\n\
              --no-kde        Force generic notification style\n\
              --help          Show this help\n\
