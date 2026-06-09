@@ -1,4 +1,5 @@
 use crate::config::SxcuConfig;
+use crate::settings::Settings;
 use std::path::Path;
 
 pub struct UploadError(pub String);
@@ -9,7 +10,7 @@ impl std::fmt::Display for UploadError {
     }
 }
 
-pub fn upload_file(cfg: &SxcuConfig, file: &Path) -> Result<String, UploadError> {
+pub fn upload_file(cfg: &SxcuConfig, settings: &Settings, file: &Path) -> Result<String, UploadError> {
     let auth = cfg
         .authorization()
         .ok_or_else(|| UploadError("No authorization header in config".into()))?
@@ -38,10 +39,33 @@ pub fn upload_file(cfg: &SxcuConfig, file: &Path) -> Result<String, UploadError>
 
     let client = reqwest::blocking::Client::new();
 
-    let response = client
+    // Start with the .sxcu headers (minus authorization which goes separately)
+    let mut builder = client
         .post(&cfg.request_url)
         .header("authorization", auth)
-        .multipart(form)
+        .multipart(form);
+
+    // Apply .sxcu headers first (skip authorization, already set)
+    for (k, v) in &cfg.headers {
+        let key = k.to_lowercase();
+        if key != "authorization" {
+            builder = builder.header(k.clone(), v.clone());
+        }
+    }
+
+    // Layer settings headers on top — only for keys not already in .sxcu
+    let sxcu_keys: std::collections::HashSet<String> = cfg.headers
+        .keys()
+        .map(|k| k.to_lowercase())
+        .collect();
+
+    for (k, v) in settings.extra_headers() {
+        if !sxcu_keys.contains(&k.to_lowercase()) {
+            builder = builder.header(k, v);
+        }
+    }
+
+    let response = builder
         .send()
         .map_err(|e| UploadError(format!("Request failed: {}", e)))?;
 

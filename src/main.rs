@@ -3,6 +3,8 @@ mod install;
 mod upload;
 mod notify;
 mod logger;
+mod settings;
+mod shorten;
 mod gui;
 
 use std::{env, path::PathBuf, process};
@@ -17,7 +19,7 @@ impl AppFlags {
     }
 }
 
-fn detect_kde() -> bool {
+pub fn detect_kde() -> bool {
     env::var("KDE_FULL_SESSION").is_ok()
         || env::var("DESKTOP_SESSION")
             .unwrap_or_default()
@@ -50,7 +52,17 @@ fn main() {
         i += 1;
     }
 
-    let flags = AppFlags { kde: kde_override };
+    // CLI --kde/--no-kde overrides settings, settings overrides auto-detect
+    let s = settings::Settings::load();
+    let kde = if let Some(k) = kde_override {
+        k
+    } else if let Some(k) = s.kde_notifications {
+        k
+    } else {
+        detect_kde()
+    };
+
+    let flags = AppFlags { kde: Some(kde) };
 
     install::ensure_installed();
 
@@ -60,12 +72,23 @@ fn main() {
             process::exit(1);
         }
 
+        // Extension check
+        if !s.extension_allowed(&file) {
+            let ext = file.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown");
+            let msg = format!(".{} is not in your allowed extensions list", ext);
+            notify::blocked(&file, &msg);
+            eprintln!("{}", msg);
+            process::exit(1);
+        }
+
         let cfg = config::load_or_setup();
 
-        match upload::upload_file(&cfg, &file) {
+        match upload::upload_file(&cfg, &s, &file) {
             Ok(url) => {
                 let copied = copy_to_clipboard(&url);
-                notify::success(&file, &url, flags.is_kde(), copied);
+                notify::success(&file, &url, kde, copied);
             }
             Err(e) => {
                 logger::log_failure(&file, &e);
@@ -79,12 +102,8 @@ fn main() {
     }
 }
 
-/// Copy text to clipboard. Returns true if it succeeded.
-/// On Wayland uses wl-copy (daemonises itself so content survives process exit).
-/// On X11 tries xclip then xsel.
 pub fn copy_to_clipboard(text: &str) -> bool {
     let is_wayland = env::var("WAYLAND_DISPLAY").is_ok();
-
     if is_wayland {
         try_copy_with("wl-copy", &[], text)
     } else {
@@ -96,22 +115,15 @@ pub fn copy_to_clipboard(text: &str) -> bool {
 fn try_copy_with(cmd: &str, args: &[&str], text: &str) -> bool {
     use std::io::Write;
     use std::process::{Command, Stdio};
-
-    let mut child = match Command::new(cmd)
-        .args(args)
-        .stdin(Stdio::piped())
-        .spawn()
-    {
+    let mut child = match Command::new(cmd).args(args).stdin(Stdio::piped()).spawn() {
         Ok(c) => c,
         Err(_) => return false,
     };
-
     if let Some(stdin) = child.stdin.as_mut() {
         if stdin.write_all(text.as_bytes()).is_err() {
             return false;
         }
     }
-    // wl-copy daemonises; don't wait so we don't block
     true
 }
 
@@ -127,9 +139,6 @@ fn print_help() {
              --no-kde        Force generic notification style\n\
              --help          Show this help\n\
          \n\
-         Without FILE, opens the drag & drop GUI.\n\
-         \n\
-         To reconfigure, delete ~/.config/zipline-upload/config.sxcu\n\
-         and re-run — setup will prompt for a new .sxcu file."
+         Without FILE, opens the drag & drop GUI."
     );
 }
