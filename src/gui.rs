@@ -323,7 +323,7 @@ impl App {
             match &self.status {
                 Status::Idle => {
                     let frame = egui::Frame::default()
-                        .stroke(egui::Stroke::new(2.0, egui::Color32::from_gray(100)))
+                        .stroke(egui::Stroke::new(2.0_f32, egui::Color32::from_gray(100)))
                         .inner_margin(egui::Margin::same(20.0))
                         .rounding(egui::Rounding::same(8.0));
 
@@ -391,7 +391,7 @@ impl App {
                     if self.show_per_upload {
                         ui.add_space(6.0);
                         egui::Frame::default()
-                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(70)))
+                            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_gray(70)))
                             .inner_margin(egui::Margin::same(10.0))
                             .rounding(egui::Rounding::same(6.0))
                             .show(ui, |ui| {
