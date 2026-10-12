@@ -4,7 +4,9 @@ use std::sync::Mutex;
 
 /// Id of the open progress notification, so later updates and the final
 /// "Uploaded" / "Upload failed" replace it (freedesktop replaces_id, which
-/// every notification server supports, unlike the synchronous hint).
+/// every notification server supports). Don't also send a stack tag such as
+/// x-canonical-private-synchronous: mako then matches the notification
+/// against itself and deletes it.
 static PROGRESS_ID: Mutex<Option<u32>> = Mutex::new(None);
 
 /// Adds --replace-id for the open progress notification, if any.
@@ -31,16 +33,11 @@ fn is_image(file: &Path) -> bool {
     )
 }
 
-/// Notifications with this hint replace each other (mako, dunst), so the
-/// progress popup turns into the result instead of piling up.
-const SYNC: &str = "string:x-canonical-private-synchronous:zipline-upload";
-
 pub fn progress(name: &str, pct: u64, sent: u64, total: u64) {
     let mut cmd = Command::new("notify-send");
     cmd.arg("--app-name=Zipline Upload")
         .arg("--expire-time=0")
         .arg("--print-id")
-        .arg(format!("--hint={}", SYNC))
         .arg(format!("--hint=int:value:{}", pct))
         .arg(format!("Uploading — {}", name))
         .arg(format!(
@@ -70,7 +67,6 @@ pub fn success(file: &Path, url: &str, kde: bool, copied: bool) {
     let mut cmd = Command::new("notify-send");
     cmd.arg("--app-name=Zipline Upload")
        .arg("--expire-time=5000")
-       .arg(format!("--hint={}", SYNC))
        .arg(format!("Uploaded — {}", name))
        .arg(&body);
 
@@ -90,7 +86,6 @@ pub fn failure(file: &Path, err: &dyn std::fmt::Display) {
     let mut cmd = Command::new("notify-send");
     cmd.arg("--app-name=Zipline Upload")
         .arg("--expire-time=8000")
-        .arg(format!("--hint={}", SYNC))
         .arg("--urgency=critical")
         .arg(format!("Upload failed — {}", name))
         .arg(err.to_string());
