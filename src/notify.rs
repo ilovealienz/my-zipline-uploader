@@ -14,6 +14,27 @@ fn is_image(file: &Path) -> bool {
     )
 }
 
+/// Notifications with this hint replace each other (mako, dunst), so the
+/// progress popup turns into the result instead of piling up.
+const SYNC: &str = "string:x-canonical-private-synchronous:zipline-upload";
+
+pub fn progress(name: &str, pct: u64, sent: u64, total: u64) {
+    Command::new("notify-send")
+        .arg("--app-name=Zipline Upload")
+        .arg("--expire-time=0")
+        .arg(format!("--hint={}", SYNC))
+        .arg(format!("--hint=int:value:{}", pct))
+        .arg(format!("Uploading — {}", name))
+        .arg(format!(
+            "{}% · {} of {}",
+            pct,
+            crate::upload::human(sent),
+            crate::upload::human(total)
+        ))
+        .spawn()
+        .ok();
+}
+
 pub fn success(file: &Path, url: &str, kde: bool, copied: bool) {
     let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let clipboard_line = if copied { "\nCopied to clipboard" } else { "" };
@@ -27,6 +48,7 @@ pub fn success(file: &Path, url: &str, kde: bool, copied: bool) {
     let mut cmd = Command::new("notify-send");
     cmd.arg("--app-name=Zipline Upload")
        .arg("--expire-time=5000")
+       .arg(format!("--hint={}", SYNC))
        .arg(format!("Uploaded — {}", name))
        .arg(&body);
 
@@ -45,6 +67,7 @@ pub fn failure(file: &Path, err: &dyn std::fmt::Display) {
     Command::new("notify-send")
         .arg("--app-name=Zipline Upload")
         .arg("--expire-time=8000")
+        .arg(format!("--hint={}", SYNC))
         .arg("--urgency=critical")
         .arg(format!("Upload failed — {}", name))
         .arg(err.to_string())

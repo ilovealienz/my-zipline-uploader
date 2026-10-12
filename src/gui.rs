@@ -251,58 +251,14 @@ impl App {
     }
 }
 
-/// The actual HTTP upload — .sxcu headers first, extra headers layered on top.
+/// The actual HTTP upload (shared with the CLI): streams the file and has
+/// no overall time limit, so big files work.
 fn do_upload(
     cfg: &crate::config::SxcuConfig,
     file: &std::path::Path,
     extra: Vec<(String, String)>,
 ) -> Result<String, upload::UploadError> {
-    let auth = cfg
-        .authorization()
-        .ok_or_else(|| upload::UploadError("No authorization header in config".into()))?
-        .to_string();
-
-    let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("upload").to_string();
-    let mime = mime_guess::from_path(file).first_or_octet_stream().to_string();
-    let bytes = std::fs::read(file).map_err(|e| upload::UploadError(format!("Could not read file: {}", e)))?;
-
-    let part = reqwest::blocking::multipart::Part::bytes(bytes)
-        .file_name(file_name)
-        .mime_str(&mime)
-        .map_err(|e| upload::UploadError(e.to_string()))?;
-
-    let form = reqwest::blocking::multipart::Form::new().part(cfg.file_form_name.clone(), part);
-    let client = reqwest::blocking::Client::new();
-    let mut builder = client.post(&cfg.request_url).header("authorization", &auth).multipart(form);
-
-    // .sxcu headers (skip authorization, already set)
-    for (k, v) in &cfg.headers {
-        if k.to_lowercase() != "authorization" {
-            builder = builder.header(k.clone(), v.clone());
-        }
-    }
-
-    // Extra headers — skip any already present in .sxcu
-    let sxcu_keys: std::collections::HashSet<String> = cfg.headers.keys().map(|k| k.to_lowercase()).collect();
-    for (k, v) in extra {
-        if !sxcu_keys.contains(&k.to_lowercase()) {
-            builder = builder.header(k, v);
-        }
-    }
-
-    let response = builder.send().map_err(|e| upload::UploadError(format!("Request failed: {}", e)))?;
-    let status = response.status();
-    let body = response.text().unwrap_or_else(|_| "(no response body)".into());
-
-    if !status.is_success() {
-        return Err(upload::UploadError(format!("{} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), body)));
-    }
-
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|_| upload::UploadError(format!("Invalid JSON response: {}", body)))?;
-
-    json["files"][0]["url"].as_str().map(|s| s.to_string())
-        .ok_or_else(|| upload::UploadError(format!("Could not find files[0].url in: {}", body)))
+    upload::upload_with_headers(cfg, file, extra)
 }
 
 impl eframe::App for App {
